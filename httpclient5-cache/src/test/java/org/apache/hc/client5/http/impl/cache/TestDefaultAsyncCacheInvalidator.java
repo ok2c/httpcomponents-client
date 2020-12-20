@@ -55,7 +55,6 @@ import org.junit.runner.RunWith;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.Mockito;
-import org.mockito.invocation.InvocationOnMock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.mockito.stubbing.Answer;
 
@@ -83,14 +82,9 @@ public class TestDefaultAsyncCacheInvalidator {
         now = new Date();
         tenSecondsAgo = new Date(now.getTime() - 10 * 1000L);
 
-        when(cacheKeyResolver.resolve(ArgumentMatchers.<URI>any())).thenAnswer(new Answer<String>() {
-
-            @Override
-            public String answer(final InvocationOnMock invocation) throws Throwable {
-                final URI uri = invocation.getArgument(0);
-                return HttpCacheSupport.normalize(uri).toASCIIString();
-            }
-
+        when(cacheKeyResolver.resolve(ArgumentMatchers.<URI>any())).thenAnswer((Answer<String>) invocation -> {
+            final URI uri = invocation.getArgument(0);
+            return HttpCacheSupport.normalize(uri).toASCIIString();
         });
 
         host = new HttpHost("foo.example.com");
@@ -679,16 +673,11 @@ public class TestDefaultAsyncCacheInvalidator {
     private void cacheReturnsEntryForUri(final String key, final HttpCacheEntry cacheEntry) {
         Mockito.when(mockStorage.getEntry(
                 ArgumentMatchers.eq(key),
-                ArgumentMatchers.<FutureCallback<HttpCacheEntry>>any())).thenAnswer(new Answer<Cancellable>() {
-
-            @Override
-            public Cancellable answer(final InvocationOnMock invocation) throws Throwable {
-                final FutureCallback<HttpCacheEntry> callback = invocation.getArgument(1);
-                callback.completed(cacheEntry);
-                return cancellable;
-            }
-
-        });
+                ArgumentMatchers.<FutureCallback<HttpCacheEntry>>any())).thenAnswer((Answer<Cancellable>) invocation -> {
+                    final FutureCallback<HttpCacheEntry> callback = invocation.getArgument(1);
+                    callback.completed(cacheEntry);
+                    return cancellable;
+                });
     }
 
     private void cacheEntryisForMethod(final String httpMethod) {

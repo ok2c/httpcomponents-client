@@ -282,14 +282,7 @@ class CachingExec extends CachingExecBase implements ExecChainHandler {
                     final SimpleHttpResponse response = generateCachedResponse(request, context, entry, now);
                     cacheRevalidator.revalidateCacheEntry(
                             responseCache.generateKey(target, request, entry),
-                            new DefaultCacheRevalidator.RevalidationCall() {
-
-                        @Override
-                        public ClassicHttpResponse execute() throws HttpException, IOException {
-                            return revalidateCacheEntry(target, request, fork, chain, entry);
-                        }
-
-                    });
+                            () -> revalidateCacheEntry(target, request, fork, chain, entry));
                     return convert(response, scope);
                 }
                 return revalidateCacheEntry(target, request, scope, chain, entry);
