@@ -40,6 +40,7 @@ import javax.net.ssl.SSLSession;
 
 import org.apache.hc.core5.annotation.Contract;
 import org.apache.hc.core5.annotation.ThreadingBehavior;
+import org.apache.hc.core5.concurrent.FutureCallback;
 import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.nio.ssl.TlsStrategy;
 import org.apache.hc.core5.http.ssl.TLS;
@@ -47,6 +48,7 @@ import org.apache.hc.core5.http.ssl.TlsCiphers;
 import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.http2.ssl.ApplicationProtocol;
 import org.apache.hc.core5.http2.ssl.H2TlsSupport;
+import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.reactor.ssl.SSLBufferMode;
 import org.apache.hc.core5.reactor.ssl.TlsDetails;
 import org.apache.hc.core5.reactor.ssl.TransportSecurityLayer;
@@ -83,6 +85,59 @@ abstract class AbstractClientTlsStrategy implements TlsStrategy {
     }
 
     @Override
+    public void upgrade(
+            final TransportSecurityLayer tlsSession,
+            final NamedEndpoint endpoint,
+            final Object attachment,
+            final Timeout handshakeTimeout,
+            final FutureCallback<TransportSecurityLayer> callback) {
+        tlsSession.startTls(sslContext, endpoint, sslBufferManagement, (e, sslEngine) -> {
+
+                    final HttpVersionPolicy versionPolicy = attachment instanceof HttpVersionPolicy ?
+                            (HttpVersionPolicy) attachment : HttpVersionPolicy.NEGOTIATE;
+
+                    final SSLParameters sslParameters = sslEngine.getSSLParameters();
+                    if (supportedProtocols != null) {
+                        sslParameters.setProtocols(supportedProtocols);
+                    } else if (versionPolicy != HttpVersionPolicy.FORCE_HTTP_1) {
+                        sslParameters.setProtocols(TLS.excludeWeak(sslParameters.getProtocols()));
+                    }
+                    if (supportedCipherSuites != null) {
+                        sslParameters.setCipherSuites(supportedCipherSuites);
+                    } else if (versionPolicy == HttpVersionPolicy.FORCE_HTTP_2) {
+                        sslParameters.setCipherSuites(TlsCiphers.excludeH2Blacklisted(sslParameters.getCipherSuites()));
+                    }
+
+                    if (versionPolicy != HttpVersionPolicy.FORCE_HTTP_1) {
+                        H2TlsSupport.setEnableRetransmissions(sslParameters, false);
+                    }
+
+                    applyParameters(sslEngine, sslParameters, H2TlsSupport.selectApplicationProtocols(attachment));
+
+                    initializeEngine(sslEngine);
+
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Enabled protocols: {}", Arrays.asList(sslEngine.getEnabledProtocols()));
+                        LOG.debug("Enabled cipher suites:{}", Arrays.asList(sslEngine.getEnabledCipherSuites()));
+                    }
+                },
+                (e, sslEngine) -> {
+                    verifySession(endpoint.getHostName(), sslEngine.getSession());
+                    final TlsDetails tlsDetails = createTlsDetails(sslEngine);
+                    final String negotiatedCipherSuite = sslEngine.getSession().getCipherSuite();
+                    if (tlsDetails != null && ApplicationProtocol.HTTP_2.id.equals(tlsDetails.getApplicationProtocol())) {
+                        if (TlsCiphers.isH2Blacklisted(negotiatedCipherSuite)) {
+                            throw new SSLHandshakeException("Cipher suite `" + negotiatedCipherSuite
+                                    + "` does not provide adequate security for HTTP/2");
+                        }
+                    }
+                    return tlsDetails;
+                },
+                handshakeTimeout,
+                callback);
+    }
+
+    @Override
     public boolean upgrade(
             final TransportSecurityLayer tlsSession,
             final HttpHost host,
@@ -90,47 +145,7 @@ abstract class AbstractClientTlsStrategy implements TlsStrategy {
             final SocketAddress remoteAddress,
             final Object attachment,
             final Timeout handshakeTimeout) {
-        tlsSession.startTls(sslContext, host, sslBufferManagement, (endpoint, sslEngine) -> {
-
-            final HttpVersionPolicy versionPolicy = attachment instanceof HttpVersionPolicy ?
-                    (HttpVersionPolicy) attachment : HttpVersionPolicy.NEGOTIATE;
-
-            final SSLParameters sslParameters = sslEngine.getSSLParameters();
-            if (supportedProtocols != null) {
-                sslParameters.setProtocols(supportedProtocols);
-            } else if (versionPolicy != HttpVersionPolicy.FORCE_HTTP_1) {
-                sslParameters.setProtocols(TLS.excludeWeak(sslParameters.getProtocols()));
-            }
-            if (supportedCipherSuites != null) {
-                sslParameters.setCipherSuites(supportedCipherSuites);
-            } else if (versionPolicy == HttpVersionPolicy.FORCE_HTTP_2) {
-                sslParameters.setCipherSuites(TlsCiphers.excludeH2Blacklisted(sslParameters.getCipherSuites()));
-            }
-
-            if (versionPolicy != HttpVersionPolicy.FORCE_HTTP_1) {
-                H2TlsSupport.setEnableRetransmissions(sslParameters, false);
-            }
-
-            applyParameters(sslEngine, sslParameters, H2TlsSupport.selectApplicationProtocols(attachment));
-
-            initializeEngine(sslEngine);
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Enabled protocols: {}", Arrays.asList(sslEngine.getEnabledProtocols()));
-                LOG.debug("Enabled cipher suites:{}", Arrays.asList(sslEngine.getEnabledCipherSuites()));
-            }
-        }, (endpoint, sslEngine) -> {
-            verifySession(host.getHostName(), sslEngine.getSession());
-            final TlsDetails tlsDetails = createTlsDetails(sslEngine);
-            final String negotiatedCipherSuite = sslEngine.getSession().getCipherSuite();
-            if (tlsDetails != null && ApplicationProtocol.HTTP_2.id.equals(tlsDetails.getApplicationProtocol())) {
-                if (TlsCiphers.isH2Blacklisted(negotiatedCipherSuite)) {
-                    throw new SSLHandshakeException("Cipher suite `" + negotiatedCipherSuite
-                        + "` does not provide adequate security for HTTP/2");
-                }
-            }
-            return tlsDetails;
-        }, handshakeTimeout);
+        upgrade(tlsSession, host, attachment, handshakeTimeout, null);
         return true;
     }
 
