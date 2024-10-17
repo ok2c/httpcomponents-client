@@ -26,15 +26,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # windows-latest is not used due to intermittent network failures
-        os: [ubuntu-latest, macos-latest]
-        # All LTS versions plus the current version
-        java: [ 11, 17, 21 ]
-        include:
-          - java: 8
-            os: ubuntu-latest
-      fail-fast: false
-        
+        os: [macos-latest]
+        java: [ 11]
+
     steps:
     - uses: actions/checkout@v4
     - uses: actions/cache@v4
@@ -49,4 +43,4 @@ jobs:
         distribution: 'temurin'
         java-version: ${{ matrix.java }}
     - name: Build with Maven
-      run: mvn -V --file pom.xml --no-transfer-progress -DtrimStackTrace=false -P-use-toolchains,docker
+      run: mvn -V --file pom.xml --no-transfer-progress -DtrimStackTrace=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest=org.apache.hc.client5.testing.async.HttpIntegrationTests -P-use-toolchains

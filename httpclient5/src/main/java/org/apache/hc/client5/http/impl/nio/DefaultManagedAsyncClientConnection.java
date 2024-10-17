@@ -100,13 +100,17 @@ final class DefaultManagedAsyncClientConnection implements ManagedAsyncClientCon
     public boolean isOpen() {
         final IOSession ioSession = this.ioSession;
         if (ioSession.isOpen()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("{} I/O session is open", getId());
+            }
             final IOEventHandler handler = ioSession.getHandler();
             if (handler instanceof HttpConnection) {
                 final HttpConnection conn = (HttpConnection) handler;
-                final ProtocolVersion protocolVersion = conn.getProtocolVersion();
-                if (protocolVersion != null && protocolVersion.greaterEquals(HttpVersion.HTTP_2)) {
-                    return conn.isOpen();
+                final boolean open = conn.isOpen();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("{} Connection: {} {}", getId(), conn, open);
                 }
+                return open;
             }
             return true;
         } else {
