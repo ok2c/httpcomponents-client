@@ -45,28 +45,52 @@ public final class RequestSupport {
 
     public static String extractPathPrefix(final HttpRequest request) {
         final String path = request.getPath();
-        try {
-            final URIBuilder uriBuilder = new URIBuilder(path);
-            uriBuilder.setFragment(null);
-            uriBuilder.clearParameters();
-            uriBuilder.optimize();
-            final List<String> pathSegments = uriBuilder.getPathSegments();
-
-            if (!pathSegments.isEmpty()) {
-                pathSegments.remove(pathSegments.size() - 1);
+        int lastDelimiter = -1;
+        int terminal = -1;
+        boolean requiresOptimization = false;
+        for (int i = 0; i < path.length(); i++) {
+            final char ch = path.charAt(i);
+            if (ch == '?' || ch == '#') {
+                terminal = i;
+                break;
             }
-            if (pathSegments.isEmpty()) {
-                return "/";
+            if (ch == '/') {
+                lastDelimiter = i;
             }
-            final StringBuilder buf = new StringBuilder();
-            buf.append('/');
-            for (final String pathSegment : pathSegments) {
-                PercentCodec.encode(buf, pathSegment, StandardCharsets.US_ASCII);
-                buf.append('/');
+            if (ch == '.' || ch == '%') {
+                requiresOptimization = true;
             }
-            return buf.toString();
-        } catch (final URISyntaxException ex) {
-            return path;
+        }
+        final String pathPrefix;
+        if (lastDelimiter != -1) {
+            pathPrefix = path.substring(0, lastDelimiter + 1);
+        } else if (terminal != -1) {
+            pathPrefix = path.substring(0, terminal);
+        } else {
+            pathPrefix = path.substring(0, path.length() - 1);
+        }
+        if (pathPrefix.isEmpty()) {
+            return "/";
+        }
+        if (!requiresOptimization) {
+            return pathPrefix;
+        } else {
+            try {
+                final URIBuilder uriBuilder = new URIBuilder(pathPrefix);
+                uriBuilder.optimize();
+                final List<String> pathSegments = uriBuilder.getPathSegments();
+                if (pathSegments.isEmpty()) {
+                    return "/";
+                }
+                final StringBuilder buf = new StringBuilder();
+                for (final String pathSegment : pathSegments) {
+                    buf.append('/');
+                    PercentCodec.encode(buf, pathSegment, StandardCharsets.US_ASCII);
+                }
+                return buf.toString();
+            } catch (final URISyntaxException ex) {
+                return pathPrefix;
+            }
         }
     }
 
